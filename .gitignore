@@ -1,3 +1,16 @@
 .env
 __pycache__/
 backend/cache/
+
+# Entornos virtuales y dependencias
+.venv/
+venv/
+node_modules/
+
+# Caché de Python y embeddings
+__pycache__/
+*.pyc
+backend/cache/
+
+# Variables de entorno (API Keys)
+.env

@@ -149,6 +149,7 @@ def cargar_o_crear_indice():
     print("Índice guardado en caché.")
     return chunks, articulos, emb
 
+
 class BM25Okapi:
     """BM25 mínimo, compatible con el uso que le damos (get_scores)."""
 
@@ -175,6 +176,8 @@ class BM25Okapi:
                     norm = 1 - self.b + self.b * self.largos[i] / self.avgdl
                     puntajes[i] += idf * f * (self.k1 + 1) / (f + self.k1 * norm)
         return puntajes
+
+
 # ---------------------------------------------------------------- Búsqueda
 STOP = {"que", "los", "las", "del", "una", "por", "con", "para", "como", "cual",
         "cuales", "segun", "sobre", "dice", "este", "esta", "son", "ser", "sus",
@@ -256,7 +259,13 @@ Pregunta: {pregunta}
 """
     mensajes = [{
         "role": "system",
-        "content": "Eres un asistente experto en la Constitución colombiana. Respondes en español, de forma clara y fundamentada en el contexto provisto.",
+        "content": (
+            "Eres un asistente experto en la Constitución Política de Colombia de 1991. "
+            "Tu creador y desarrollador es Santiago Cardona Libreros. Si te preguntan quién te creó, quién es tu autor "
+            "o quién te desarrolló, responde con orgullo que fuiste creado por Santiago Cardona Libreros. "
+            "Para cualquier otra pregunta sobre la Constitución, responde en español, de forma clara "
+            "y fundamentada únicamente en el contexto provisto."
+        ),
     }]
     for m in historial[-6:]:
         mensajes.append({

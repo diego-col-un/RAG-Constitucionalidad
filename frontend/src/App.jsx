@@ -13,7 +13,7 @@ function barajar(arr) {
   return a;
 }
 
-const elegirSugeridas = () => barajar(PREGUNTAS).slice(0, 4);
+const elegirSugeridas = () => barajar(PREGUNTAS).slice(0, 5);
 
 function Bandera() {
   return (
@@ -44,22 +44,62 @@ function Balanza() {
   );
 }
 
+// Formatea las respuestas del bot resaltando negritas y citas de artículos/páginas
+function FormatearRespuesta({ texto }) {
+  const parrafos = texto.split("\n").filter((p) => p.trim() !== "");
+
+  const procesarLinea = (linea) => {
+    const partes = linea.split(/(\*\*.*?\*\*|\[Art\..*?\]|Artículo\s+\d+)/gi);
+    return partes.map((parte, idx) => {
+      if (parte.startsWith("**") && parte.endsWith("**")) {
+        return <strong key={idx}>{parte.slice(2, -2)}</strong>;
+      }
+      if (parte.startsWith("[Art.") || /^Artículo\s+\d+/i.test(parte)) {
+        return (
+          <span key={idx} className="cite-badge">
+            {parte}
+          </span>
+        );
+      }
+      return parte;
+    });
+  };
+
+  return (
+    <div className="bot-formatted-text">
+      {parrafos.map((p, index) => {
+        const esLista = /^[-•*]\s/.test(p.trim());
+        if (esLista) {
+          return (
+            <div key={index} className="bullet-item">
+              <span className="bullet-dot">•</span>
+              <span>{procesarLinea(p.trim().replace(/^[-•*]\s/, ""))}</span>
+            </div>
+          );
+        }
+        return <p key={index}>{procesarLinea(p)}</p>;
+      })}
+    </div>
+  );
+}
+
 export default function App() {
   const [mensajes, setMensajes] = useState([
     {
       rol: "bot",
       texto:
-        "Hola, soy tu asistente sobre la Constitución Política de Colombia de 1991. Elige una pregunta sobre derechos fundamentales o escribe la tuya.",
+        "Hola, soy tu asistente sobre la **Constitución Política de Colombia de 1991**. Elige una pregunta sugerida sobre derechos fundamentales o escribe la tuya.",
     },
   ]);
   const [input, setInput] = useState("");
   const [cargando, setCargando] = useState(false);
   const [sugeridas, setSugeridas] = useState(elegirSugeridas);
+  const [copiadoIdx, setCopiadoIdx] = useState(null);
   const finRef = useRef(null);
 
   useEffect(() => {
     finRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [mensajes]);
+  }, [mensajes, cargando]);
 
   async function enviar(texto) {
     const pregunta = (texto ?? input).trim();
@@ -79,59 +119,85 @@ export default function App() {
         body: JSON.stringify({ pregunta, historial }),
       });
       const data = await res.json();
-      const respuesta = res.ok ? data.respuesta : `Error: ${data.error}`;
-      setMensajes((m) => [...m, { rol: "bot", texto: respuesta }]);
+      if (res.ok) {
+        setMensajes((m) => [...m, { rol: "bot", texto: data.respuesta }]);
+      } else {
+        setMensajes((m) => [
+          ...m,
+          { rol: "bot", texto: `Error: ${data.error}`, esError: true },
+        ]);
+      }
     } catch {
       setMensajes((m) => [
         ...m,
-        { rol: "bot", texto: "No se pudo conectar con el servidor." },
+        {
+          rol: "bot",
+          texto: "No se pudo conectar con el servidor.",
+          esError: true,
+        },
       ]);
     } finally {
       setCargando(false);
     }
   }
 
+  const limpiarChat = () => {
+    setMensajes([
+      {
+        rol: "bot",
+        texto:
+          "Conversación reiniciada. Elige una pregunta sobre derechos fundamentales o escribe la tuya.",
+      },
+    ]);
+  };
+
+  const copiarTexto = (texto, idx) => {
+    navigator.clipboard.writeText(texto);
+    setCopiadoIdx(idx);
+    setTimeout(() => setCopiadoIdx(null), 2000);
+  };
+
   return (
-    <div className="app">
-      <header className="cabecera">
-        <div className="franja" />
-        <div className="cabecera-contenido">
-          <Bandera />
-          <div className="titulos">
-            <h1>Constitución Política de Colombia</h1>
-            <p>Asistente sobre derechos fundamentales · 1991</p>
+    <div className="app-layout">
+      {/* Barra Lateral Institucional */}
+      <aside className="sidebar">
+        <div className="franja-tricolor">
+          <span className="amarillo" />
+          <span className="azul" />
+          <span className="rojo" />
+        </div>
+
+        <div className="brand-header">
+          <div className="brand-top">
+            <Bandera />
+            <Balanza />
           </div>
-          <Balanza />
-        </div>
-      </header>
-
-      <main className="chat">
-        <div className="mensajes">
-          {mensajes.map((m, i) => (
-            <div key={i} className={`mensaje ${m.rol}`}>
-              {m.texto}
-            </div>
-          ))}
-          {cargando && <div className="mensaje bot">Consultando la Constitución...</div>}
-          <div ref={finRef} />
+          <h1>Constitución Política de Colombia</h1>
+          <p className="subtitle">Asistente sobre derechos fundamentales · 1991</p>
         </div>
 
-        <div className="sugerencias">
-          <div className="sugerencias-barra">
-            <span>Preguntas sobre derechos fundamentales</span>
+        <button className="new-chat-btn" onClick={limpiarChat} disabled={cargando}>
+          <span>+</span> Nueva consulta
+        </button>
+
+        <div className="sidebar-section">
+          <div className="sugerencias-header">
+            <span>Preguntas sugeridas</span>
             <button
-              className="barajar"
+              className="barajar-btn"
               onClick={() => setSugeridas(elegirSugeridas())}
               disabled={cargando}
+              title="Cargar otras preguntas"
             >
-              ↻ Otras preguntas
+              ↻ Otras
             </button>
           </div>
-          <div className="chips">
+
+          <div className="chips-list">
             {sugeridas.map((p) => (
               <button
                 key={p}
-                className="chip"
+                className="chip-btn"
                 onClick={() => enviar(p)}
                 disabled={cargando}
               >
@@ -141,16 +207,101 @@ export default function App() {
           </div>
         </div>
 
-        <div className="entrada">
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && enviar()}
-            placeholder="Escribe tu pregunta..."
-          />
-          <button onClick={() => enviar()} disabled={cargando}>
-            Enviar
+        <div className="sidebar-footer">
+          <div className="status-row">
+            <span className="status-dot" />
+            <span>RAG Híbrido Activo</span>
+          </div>
+          <p className="creator-credit">Creado por Santiago Cardona y Diego Aristizabal </p>
+        </div>
+      </aside>
+
+      {/* Área Principal del Chat */}
+      <main className="chat-main">
+        {/* Cabecera visible solo en móviles */}
+        <header className="mobile-header">
+          <div className="mobile-brand">
+            <Bandera />
+            <span>Constitución 1991</span>
+          </div>
+          <button onClick={limpiarChat} className="mobile-clear-btn">
+            Limpiar
           </button>
+        </header>
+
+        <div className="mensajes-scroll">
+          <div className="mensajes-container">
+            {mensajes.map((m, i) => (
+              <div key={i} className={`mensaje-row ${m.rol}`}>
+                <div className="avatar">
+                  {m.rol === "user" ? "Tú" : <Balanza />}
+                </div>
+                <div className={`burbuja ${m.esError ? "error" : ""}`}>
+                  <div className="burbuja-meta">
+                    <span className="autor">
+                      {m.rol === "user"
+                        ? "Ciudadano"
+                        : "Asistente Constitucional"}
+                    </span>
+                    {m.rol === "bot" && !m.esError && (
+                      <button
+                        className="copy-btn"
+                        onClick={() => copiarTexto(m.texto, i)}
+                      >
+                        {copiadoIdx === i ? "✓ Copiado" : "Copiar"}
+                      </button>
+                    )}
+                  </div>
+
+                  {m.rol === "user" ? (
+                    <p className="texto-usuario">{m.texto}</p>
+                  ) : (
+                    <FormatearRespuesta texto={m.texto} />
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {cargando && (
+              <div className="mensaje-row bot">
+                <div className="avatar">
+                  <Balanza />
+                </div>
+                <div className="burbuja typing">
+                  <div className="dots">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <span>Consultando la Constitución...</span>
+                </div>
+              </div>
+            )}
+            <div ref={finRef} />
+          </div>
+        </div>
+
+        {/* Barra de entrada */}
+        <div className="entrada-wrapper">
+          <div className="entrada-box">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && enviar()}
+              placeholder="Escribe tu pregunta sobre la Constitución o un artículo..."
+              disabled={cargando}
+            />
+            <button
+              className="enviar-btn"
+              onClick={() => enviar()}
+              disabled={cargando || !input.trim()}
+            >
+              Enviar ➔
+            </button>
+          </div>
+          <p className="footer-note">
+            Respuestas fundamentadas en el texto de la Constitución Política de Colombia de 1991.
+          </p>
         </div>
       </main>
     </div>

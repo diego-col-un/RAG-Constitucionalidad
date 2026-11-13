@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# 1. Llamada directa a OpenRouter (sin el SDK de openai)
 def llamar_llm(messages, model="deepseek/deepseek-chat"):
     r = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
