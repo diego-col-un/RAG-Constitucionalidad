@@ -509,3 +509,303 @@ body {
     max-width: 90%;
   }
 }
+/* ---------------- SELECTOR DE MODO ---------------- */
+.mode-switcher {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mode-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 8px 6px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-btn.active {
+  background: var(--gold);
+  color: var(--navy-950);
+  box-shadow: 0 2px 8px rgba(212, 175, 55, 0.35);
+}
+
+.mode-btn:hover:not(.active):not(:disabled) {
+  color: #ffffff;
+}
+
+/* ---------------- ACCIONES Y AUDITORÍA ---------------- */
+.meta-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.word-btn {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.word-btn:hover {
+  background: #dbeafe;
+}
+
+.audit-box {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.audit-toggle {
+  width: 100%;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--navy-800);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.audit-toggle:hover {
+  background: #f1f5f9;
+}
+
+.audit-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.audit-card {
+  background: #fffbeb;
+  border-left: 3px solid var(--gold);
+  border-top: 1px solid #fef3c7;
+  border-right: 1px solid #fef3c7;
+  border-bottom: 1px solid #fef3c7;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+}
+
+.audit-card-header {
+  display: flex;
+  justify-content: space-between;
+  color: #92400e;
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+}
+
+.audit-extract {
+  color: #334155;
+  font-style: italic;
+  line-height: 1.45;
+}
+
+/* ---------------- SEMÁFORO ANTI-ALUCINACIÓN ---------------- */
+.semaforo-bar {
+  margin-top: 14px;
+  padding: 9px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.semaforo-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--navy-900);
+}
+
+.semaforo-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rigor-pill {
+  font-size: 0.73rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 99px;
+  border: 1px solid transparent;
+}
+
+.rigor-pill.verificado {
+  background: #ecfdf5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+
+.rigor-pill.extensivo {
+  background: #fffbeb;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.rigor-pill.alerta {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+/* ---------------- PESTAÑAS DE HERRAMIENTAS ---------------- */
+.tools-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tool-tab-btn {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: var(--navy-800);
+  font-size: 0.77rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tool-tab-btn:hover {
+  border-color: var(--col-blue);
+  background: #f8fafc;
+}
+
+.tool-tab-btn.active {
+  background: var(--navy-900);
+  color: #ffffff;
+  border-color: var(--navy-900);
+}
+
+/* ---------------- GRAFO DE CONEXIDAD ---------------- */
+.grafo-panel {
+  margin-top: 10px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.grafo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--navy-900);
+}
+
+.grafo-header small {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.grafo-body {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.grafo-svg {
+  width: 100%;
+  height: auto;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.grafo-info {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.grafo-info-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--navy-900);
+}
+
+.afinidad-pill {
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+}
+
+.grafo-extracto {
+  color: #334155;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.grafo-placeholder {
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.grafo-ask-btn {
+  background: var(--col-blue);
+  color: #ffffff;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 2px;
+}
+
+.grafo-ask-btn:hover:not(:disabled) {
+  background: var(--navy-900);
+}
+
+@media (max-width: 768px) {
+  .grafo-body {
+    grid-template-columns: 1fr;
+  }
+}

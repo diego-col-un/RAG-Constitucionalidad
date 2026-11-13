@@ -3,13 +3,13 @@ import re
 import json
 import hashlib
 import unicodedata
+import math
+from collections import Counter
 import numpy as np
 import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pypdf import PdfReader
-import math
-from collections import Counter
 from sentence_transformers import SentenceTransformer
 from dotenv import load_dotenv
 
@@ -21,10 +21,7 @@ RUTA_PDF = os.path.join(BASE_DIR, "Data", "constitucio-politica-colombia-1991.pd
 CACHE_DIR = os.path.join(BASE_DIR, "cache")
 
 MODELO_EMBEDDINGS = "paraphrase-multilingual-MiniLM-L12-v2"
-# Opción más fuerte (pesa ~2 GB). Con el caché solo se calcula una vez:
-# MODELO_EMBEDDINGS = "BAAI/bge-m3"
-MAX_SEQ = 256  # con bge-m3 puedes subir a 512
-
+MAX_SEQ = 256
 MAX_PALABRAS = 120
 SOLAPE = 20
 
@@ -36,16 +33,20 @@ embedder.max_seq_length = MAX_SEQ
 
 
 # ---------------------------------------------------------------- LLM
-def llamar_llm(messages, model="deepseek/deepseek-chat"):
+def llamar_llm(messages, model="deepseek/deepseek-chat", temperature=0.1):
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Falta configurar OPENROUTER_API_KEY en el archivo .env")
+
     r = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={
-            "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
+            "Authorization": f"Bearer {api_key}",
             "HTTP-Referer": "http://localhost",
-            "X-Title": "RAG Constitucion",
+            "X-Title": "RAG Constitucion Colombia 1991",
         },
-        json={"model": model, "messages": messages, "temperature": 0.1},
-        timeout=60,
+        json={"model": model, "messages": messages, "temperature": temperature},
+        timeout=75,
     )
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
@@ -58,7 +59,6 @@ def cargar_y_fragmentar_pdf(ruta_pdf, max_palabras=MAX_PALABRAS, solape=SOLAPE):
 
     reader = PdfReader(ruta_pdf)
 
-    # Texto completo y posición donde empieza cada página
     texto, inicios = "", []
     for num, pagina in enumerate(reader.pages, start=1):
         inicios.append((len(texto), num))
@@ -82,16 +82,15 @@ def cargar_y_fragmentar_pdf(ruta_pdf, max_palabras=MAX_PALABRAS, solape=SOLAPE):
     )
     coincidencias = list(patron.finditer(texto))
 
-    segmentos = []  # (numero_articulo, pagina, texto)
+    segmentos = []
     if len(coincidencias) >= 50:
         for i, m in enumerate(coincidencias):
             fin = coincidencias[i + 1].start() if i + 1 < len(coincidencias) else len(texto)
             segmentos.append((int(m.group(1)), pagina_de(m.start()), texto[m.start():fin]))
     else:
-        print("AVISO: no se detectaron artículos; se fragmenta solo por palabras.")
         segmentos.append((None, 1, texto))
 
-    chunks, articulos = [], []
+    chunks, articulos, paginas = [], [], []
     paso = max(1, max_palabras - solape)
     for num, pag, seg in segmentos:
         palabras = seg.split()
@@ -104,15 +103,15 @@ def cargar_y_fragmentar_pdf(ruta_pdf, max_palabras=MAX_PALABRAS, solape=SOLAPE):
             if t:
                 chunks.append(f"{etiqueta} {t}")
                 articulos.append(num)
+                paginas.append(pag)
 
-    return chunks, articulos
+    return chunks, articulos, paginas
 
 
 # ---------------------------------------------------------------- Caché en disco
 def firma_cache():
-    """Cambia si cambia el PDF, el modelo o los parámetros de fragmentación."""
     st = os.stat(RUTA_PDF)
-    base = f"{MODELO_EMBEDDINGS}|{MAX_SEQ}|{MAX_PALABRAS}|{SOLAPE}|{st.st_size}|{int(st.st_mtime)}|v1"
+    base = f"{MODELO_EMBEDDINGS}|{MAX_SEQ}|{MAX_PALABRAS}|{SOLAPE}|{st.st_size}|{int(st.st_mtime)}|v2"
     return hashlib.md5(base.encode()).hexdigest()
 
 
@@ -132,27 +131,29 @@ def cargar_o_crear_indice():
                 with open(ruta_chunks, encoding="utf-8") as f:
                     datos = json.load(f)
                 emb = np.load(ruta_emb)
-                if len(emb) == len(datos["chunks"]):
-                    return datos["chunks"], datos["articulos"], emb
+                if len(emb) == len(datos["chunks"]) and "paginas" in datos:
+                    return datos["chunks"], datos["articulos"], datos["paginas"], emb
         except Exception as e:
             print(f"Caché inválido ({e}); se reconstruye.")
 
-    print("Indexando PDF (primera vez o cambió el PDF/modelo)...")
-    chunks, articulos = cargar_y_fragmentar_pdf(RUTA_PDF)
+    print("Indexando PDF...")
+    chunks, articulos, paginas = cargar_y_fragmentar_pdf(RUTA_PDF)
     emb = embedder.encode(chunks, normalize_embeddings=True, show_progress_bar=True)
 
     with open(ruta_chunks, "w", encoding="utf-8") as f:
-        json.dump({"chunks": chunks, "articulos": articulos}, f, ensure_ascii=False)
+        json.dump(
+            {"chunks": chunks, "articulos": articulos, "paginas": paginas},
+            f,
+            ensure_ascii=False,
+        )
     np.save(ruta_emb, emb)
     with open(ruta_meta, "w", encoding="utf-8") as f:
         json.dump({"firma": firma}, f)
     print("Índice guardado en caché.")
-    return chunks, articulos, emb
+    return chunks, articulos, paginas, emb
 
 
 class BM25Okapi:
-    """BM25 mínimo, compatible con el uso que le damos (get_scores)."""
-
     def __init__(self, corpus, k1=1.5, b=0.75):
         self.k1, self.b = k1, b
         self.docs = [Counter(doc) for doc in corpus]
@@ -179,30 +180,35 @@ class BM25Okapi:
 
 
 # ---------------------------------------------------------------- Búsqueda
-STOP = {"que", "los", "las", "del", "una", "por", "con", "para", "como", "cual",
-        "cuales", "segun", "sobre", "dice", "este", "esta", "son", "ser", "sus",
-        "han", "hay", "puede", "pueden", "constitucion", "colombia"}
+STOP = {
+    "que", "los", "las", "del", "una", "por", "con", "para", "como", "cual",
+    "cuales", "segun", "sobre", "dice", "este", "esta", "son", "ser", "sus",
+    "han", "hay", "puede", "pueden", "constitucion", "colombia"
+}
 
 
 def tokenizar(texto):
     texto = unicodedata.normalize("NFD", texto.lower())
     texto = "".join(c for c in texto if unicodedata.category(c) != "Mn")
-    # t[:6] es un "stemmer" tosco: garantiza/garantizar/garantías -> "garant"
     return [t[:6] for t in re.findall(r"\w+", texto) if len(t) > 2 and t not in STOP]
 
 
-def expandir_consulta(pregunta, historial):
+def expandir_consulta(pregunta, historial, modo="consulta"):
     contexto_hist = "\n".join(f"{m['rol']}: {m['texto'][:300]}" for m in historial[-4:])
+    enfoque = (
+        "Identifica qué derechos fundamentales podrían estar vulnerados y qué mecanismo constitucional aplica (tutela art. 86, petición art. 23, hábeas corpus art. 30, acción popular art. 88, cumplimiento art. 87)."
+        if modo == "caso"
+        else "Usa el vocabulario del texto constitucional."
+    )
     prompt = f"""Eres experto en la Constitución Política de Colombia de 1991.
-Escribe 3 consultas de búsqueda distintas para encontrar en el texto constitucional la respuesta a la pregunta.
-Usa el vocabulario del texto (derecho, garantiza, prohíbe, artículo, autoridad, etc.) y menciona números de artículo solo si los conoces.
-Si la pregunta es un seguimiento de la conversación, hazla autónoma.
+Escribe 3 consultas de búsqueda distintas para encontrar en el texto constitucional los artículos relevantes.
+{enfoque}
 Responde solo con las 3 consultas, una por línea, sin numeración ni explicaciones.
 
 Conversación previa:
 {contexto_hist or '(ninguna)'}
 
-Pregunta: {pregunta}"""
+Entrada: {pregunta}"""
     try:
         salida = llamar_llm([{"role": "user", "content": prompt}])
         extra = [l.strip("-•*0123456789. ").strip() for l in salida.split("\n") if l.strip()][:3]
@@ -224,60 +230,109 @@ def recuperar(consultas, top_k=10, k_rrf=60):
 
 
 # ---------------------------------------------------------------- RAG
-def rag(pregunta, historial=None, top_k=10):
+def rag(pregunta, historial=None, modo="consulta", top_k=10):
     historial = historial or []
-    consultas = expandir_consulta(pregunta, historial)
+    consultas = expandir_consulta(pregunta, historial, modo)
     indices = recuperar(consultas, top_k)
 
-    # Artículos mencionados explícitamente ("artículo 29")
-    for num in re.findall(r"art[ií]culo\s+(\d+)", pregunta, re.IGNORECASE):
+    # En modo caso práctico, asegurar que siempre estén disponibles los artículos de mecanismos clave
+    articulos_forzados = [int(n) for n in re.findall(r"art[ií]culo\s+(\d+)", pregunta, re.IGNORECASE)]
+    if modo == "caso":
+        articulos_forzados.extend([23, 86])
+
+    for num in set(articulos_forzados):
         for i, a in enumerate(articulos):
-            if a == int(num) and i not in indices:
+            if a == num and i not in indices:
                 indices.append(i)
 
-    # Si un artículo largo quedó cortado, incluir su continuación
     for i in list(indices):
         if i + 1 < len(chunks) and articulos[i] is not None and articulos[i + 1] == articulos[i]:
             if i + 1 not in indices:
                 indices.append(i + 1)
 
     indices = sorted(set(indices))
-    print("Consultas:", consultas)
-    print("Recuperados:", [chunks[i][:22] for i in indices])
     contexto = "\n\n".join(chunks[i] for i in indices)
 
-    prompt = f"""Responde la pregunta con base en el siguiente contexto de la Constitución Política de Colombia.
-- Cita siempre el número de artículo y la página.
+    # Construir lista limpia de fuentes literales para la auditoría en el frontend
+    fuentes = []
+    vistos = set()
+    for i in indices:
+        art = articulos[i]
+        pag = paginas[i]
+        clave = (art, pag)
+        texto_limpio = re.sub(r"^\[.*?\]\s*", "", chunks[i])
+        if clave not in vistos:
+            vistos.add(clave)
+            fuentes.append({
+                "articulo": art,
+                "pagina": pag,
+                "extracto": texto_limpio,
+            })
+        else:
+            # Concatenar continuación si es del mismo artículo y página
+            for f in fuentes:
+                if f["articulo"] == art and f["pagina"] == pag:
+                    f["extracto"] += " " + texto_limpio
+
+    identidad = (
+        "Eres un asistente jurídico experto en la Constitución Política de Colombia de 1991, "
+        "creado y desarrollado por Santiago Cardona Libreros (Santy) y su compañero de equipo para el convenio SUMA. "
+        "Si te preguntan quién te creó, responde con orgullo mencionando a tus creadores."
+    )
+
+    if modo == "caso":
+        system_prompt = (
+            f"{identidad} Actúas como un consultorio jurídico constitucional. "
+            "Analizas casos ciudadanos con rigor dogmático y redactas borradores legales listos para usar."
+        )
+        user_prompt = f"""Analiza el siguiente caso práctico ciudadano utilizando ÚNICAMENTE los artículos provistos en el contexto de la Constitución Política de Colombia de 1991.
+
+Estructura tu respuesta EXACTAMENTE con estas 4 secciones claras:
+
+1. **Diagnóstico de Derechos Vulnerados:** Identifica qué derechos fundamentales o constitucionales están en riesgo o vulnerados, citando siempre [Art. X | Pág. Y] y explicando por qué.
+2. **Mecanismo Constitucional Idóneo y Procedibilidad:** Determina cuál acción constitucional procede (ej. Acción de Tutela - Art. 86, Derecho de Petición - Art. 23, Hábeas Corpus - Art. 30, etc.) y analiza brevemente requisitos de procedibilidad (subsidiariedad, inmediatez o perjuicio irremediable).
+3. **Fundamentación Textual:** Cita textualmente los apartes clave de los artículos recuperados que respaldan el caso.
+4. **Borrador del Escrito Constitucional:** Redacta un modelo formal completo (con encabezado al Juez o Entidad, identificación del accionante con espacios [COMPLETAR], Hechos numerados basados en el caso, Fundamentos de Derecho citando los artículos de la Constitución de 1991, Pretensiones concretas y Juramento/Notificaciones) listo para descargar y presentar.
+
+Contexto constitucional recuperado:
+{contexto}
+
+Caso del ciudadano: {pregunta}
+"""
+    else:
+        system_prompt = (
+            f"{identidad} Respondes en español de forma clara, estructurada y fundamentada exclusivamente en el contexto provisto."
+        )
+        user_prompt = f"""Responde la pregunta con base en el siguiente contexto de la Constitución Política de Colombia (a menos que sea una pregunta sobre tu identidad o creadores).
+- Cita siempre el número de artículo y la página en formato [Art. X | Pág. Y].
 - Si el contexto cubre la pregunta solo en parte, responde lo que sí respalda y aclara qué falta.
 - Di que no está en el contexto solo si realmente no hay nada relacionado.
-- No inventes contenido que no aparezca en el contexto.
+- No inventes contenido constitucional que no aparezca en el contexto.
 
 Contexto:
 {contexto}
 
 Pregunta: {pregunta}
 """
-    mensajes = [{
-        "role": "system",
-        "content": (
-            "Eres un asistente experto en la Constitución Política de Colombia de 1991. "
-            "Tu creador y desarrollador es Santiago Cardona Libreros. Si te preguntan quién te creó, quién es tu autor "
-            "o quién te desarrolló, responde con orgullo que fuiste creado por Santiago Cardona Libreros. "
-            "Para cualquier otra pregunta sobre la Constitución, responde en español, de forma clara "
-            "y fundamentada únicamente en el contexto provisto."
-        ),
-    }]
+
+    mensajes = [{"role": "system", "content": system_prompt}]
     for m in historial[-6:]:
         mensajes.append({
             "role": "user" if m["rol"] == "user" else "assistant",
             "content": m["texto"],
         })
-    mensajes.append({"role": "user", "content": prompt})
-    return llamar_llm(mensajes)
+    mensajes.append({"role": "user", "content": user_prompt})
+
+    respuesta = llamar_llm(mensajes)
+    return {
+        "respuesta": respuesta,
+        "fuentes": fuentes,
+        "modo": modo,
+    }
 
 
 # ---------------------------------------------------------------- Arranque
-chunks, articulos, chunk_embeddings = cargar_o_crear_indice()
+chunks, articulos, paginas, chunk_embeddings = cargar_o_crear_indice()
 bm25 = BM25Okapi([tokenizar(c) for c in chunks])
 print(f"Listo: {len(chunks)} fragmentos, {len(set(a for a in articulos if a))} artículos.")
 
@@ -286,10 +341,12 @@ print(f"Listo: {len(chunks)} fragmentos, {len(set(a for a in articulos if a))} a
 def chat():
     data = request.get_json(silent=True) or {}
     pregunta = (data.get("pregunta") or "").strip()
+    modo = data.get("modo", "consulta")
     if not pregunta:
         return jsonify({"error": "Falta la pregunta"}), 400
     try:
-        return jsonify({"respuesta": rag(pregunta, data.get("historial", []))})
+        resultado = rag(pregunta, data.get("historial", []), modo=modo)
+        return jsonify(resultado)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
