@@ -414,14 +414,14 @@ export default function App() {
             onClick={() => cambiarModo("consulta")}
             disabled={cargando}
           >
-            📖 Consulta
+             Consulta
           </button>
           <button
             className={`mode-btn ${modo === "caso" ? "active" : ""}`}
             onClick={() => cambiarModo("caso")}
             disabled={cargando}
           >
-            ⚖️ Evaluar Caso
+             Evaluar Caso
           </button>
         </div>
 
@@ -464,7 +464,7 @@ export default function App() {
             <span className="status-dot" />
             <span>Verificador Anti-Alucinación Activo</span>
           </div>
-          <p className="creator-credit">Proyecto Convenio SUMA · Santy</p>
+          <p className="creator-credit">Creado por Santiago Libreros y Diego Aristizabal  </p>
         </div>
       </aside>
 
