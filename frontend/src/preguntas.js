@@ -1,0 +1,18 @@
+export const PREGUNTAS = [
+  "¿Qué dice el artículo 11 sobre el derecho a la vida?",
+  "¿Qué prohíbe la Constitución sobre la tortura y los tratos crueles?",
+  "¿Cómo garantiza la Constitución la igualdad ante la ley?",
+  "¿Qué es el derecho a la intimidad y al habeas data?",
+  "¿Qué dice la Constitución sobre el libre desarrollo de la personalidad?",
+  "¿Está prohibida la esclavitud en Colombia según la Constitución?",
+  "¿Cómo protege la Constitución la libertad de conciencia?",
+  "¿Qué dice la Constitución sobre la libertad de cultos?",
+  "¿Cómo se protege la libertad de expresión y de prensa?",
+  "¿Qué es el derecho de petición y cómo funciona?",
+  "¿Qué dice la Constitución sobre la libertad de circulación?",
+  "¿Cómo protege la Constitución el derecho al trabajo?",
+  "¿Qué es el debido proceso según el artículo 29?",
+  "¿Qué es la acción de tutela y para qué sirve?",
+  "¿Qué dice la Constitución sobre el derecho a la honra?",
+  "¿Cuáles son las garantías de la libertad personal frente a una detención?",
+];
