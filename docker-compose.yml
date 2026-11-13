@@ -1,0 +1,18 @@
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    volumes:
+      - embeddings_cache:/app/cache   # para tu caché de embeddings en disco
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  embeddings_cache:
