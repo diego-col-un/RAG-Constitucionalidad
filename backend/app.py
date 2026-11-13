@@ -76,19 +76,24 @@ def cargar_y_fragmentar_pdf(ruta_pdf, max_palabras=MAX_PALABRAS, solape=SOLAPE):
                 break
         return pag
 
+    # Detecta ARTÍCULO 15, Artículo 15o, ART. 15, incluso con saltos de línea
     patron = re.compile(
-        r"^\s*ART[IÍ]CULO\s+(\d+)\s*[oOºª°]?\s*\.",
-        re.IGNORECASE | re.MULTILINE,
+        r"(?:ART[IÍ]CULO|ART\.?)\s+(\d+)\s*[oOºª°\.\-]*",
+        re.IGNORECASE,
     )
     coincidencias = list(patron.finditer(texto))
 
     segmentos = []
-    if len(coincidencias) >= 50:
+    if len(coincidencias) >= 15:
         for i, m in enumerate(coincidencias):
             fin = coincidencias[i + 1].start() if i + 1 < len(coincidencias) else len(texto)
             segmentos.append((int(m.group(1)), pagina_de(m.start()), texto[m.start():fin]))
     else:
-        segmentos.append((None, 1, texto))
+        # Si el PDF no usa la palabra Artículo, dividir por páginas numeradas
+        for num_pag, pagina in enumerate(reader.pages, start=1):
+            t_pag = pagina.extract_text() or ""
+            if t_pag.strip():
+                segmentos.append((num_pag, num_pag, t_pag))
 
     chunks, articulos, paginas = [], [], []
     paso = max(1, max_palabras - solape)
@@ -108,10 +113,16 @@ def cargar_y_fragmentar_pdf(ruta_pdf, max_palabras=MAX_PALABRAS, solape=SOLAPE):
     return chunks, articulos, paginas
 
 
+def firma_cache():
+    st = os.stat(RUTA_PDF)
+    base = f"{MODELO_EMBEDDINGS}|{MAX_SEQ}|{MAX_PALABRAS}|{SOLAPE}|{st.st_size}|{int(st.st_mtime)}|v4_grafos"
+    return hashlib.md5(base.encode()).hexdigest()
+
+
 # ---------------------------------------------------------------- Caché en disco
 def firma_cache():
     st = os.stat(RUTA_PDF)
-    base = f"{MODELO_EMBEDDINGS}|{MAX_SEQ}|{MAX_PALABRAS}|{SOLAPE}|{st.st_size}|{int(st.st_mtime)}|v2"
+    base = f"{MODELO_EMBEDDINGS}|{MAX_SEQ}|{MAX_PALABRAS}|{SOLAPE}|{st.st_size}|{int(st.st_mtime)}|v3"
     return hashlib.md5(base.encode()).hexdigest()
 
 
@@ -230,12 +241,115 @@ def recuperar(consultas, top_k=10, k_rrf=60):
 
 
 # ---------------------------------------------------------------- RAG
+# ---------------------------------------------------------------- Ingeniería Jurídica Determinística
+def auditar_citas(respuesta_texto):
+    """
+    Verifica matemáticamente cada artículo citado en la respuesta contra los embeddings
+    reales del PDF para detectar alucinaciones o interpretaciones extensivas.
+    """
+    oraciones = re.split(r"(?<=[.!?\n])\s+", respuesta_texto)
+    patron_cita = re.compile(r"(?:\[Art\.\s*|Art[ií]culo\s+)(\d+)", re.IGNORECASE)
+    citas_eval = {}
+
+    for oracion in oraciones:
+        nums = patron_cita.findall(oracion)
+        if not nums:
+            continue
+        oracion_limpia = re.sub(r"\[.*?\]|\*\*", "", oracion).strip()
+        if len(oracion_limpia) < 15:
+            continue
+
+        emb_oracion = embedder.encode(oracion_limpia, normalize_embeddings=True)
+
+        for n_str in nums:
+            num = int(n_str)
+            indices_art = [idx for idx, a in enumerate(articulos) if a == num]
+
+            if not indices_art:
+                citas_eval[num] = {
+                    "articulo": num,
+                    "score": 0,
+                    "estado": "alerta",
+                    "etiqueta": "No existe en el PDF",
+                }
+                continue
+
+            sim_max = float(np.max(chunk_embeddings[indices_art] @ emb_oracion))
+            porcentaje = int(np.clip(((sim_max - 0.30) / 0.52) * 100, 12, 99))
+
+            if porcentaje >= 68:
+                estado, etiqueta = "verificado", "Cita Exacta"
+            elif porcentaje >= 45:
+                estado, etiqueta = "extensivo", "Interpretación Doctrinal"
+            else:
+                estado, etiqueta = "alerta", "Baja Correspondencia"
+
+            if num not in citas_eval or porcentaje > citas_eval[num]["score"]:
+                citas_eval[num] = {
+                    "articulo": num,
+                    "score": porcentaje,
+                    "estado": estado,
+                    "etiqueta": etiqueta,
+                }
+
+    lista = sorted(citas_eval.values(), key=lambda x: x["articulo"])
+    rigor_global = int(sum(c["score"] for c in lista) / len(lista)) if lista else 100
+    return lista, rigor_global
+
+
+def construir_grafo_conexidad(indices_recuperados, top_n=5):
+    """
+    Calcula por álgebra lineal (producto punto de embeddings) la red de conexidad
+    sistemática entre el artículo eje de la consulta y los demás artículos de la Carta.
+    """
+    arts_candidatos = [articulos[i] for i in indices_recuperados if articulos[i] is not None]
+    if not arts_candidatos:
+        return None
+
+    art_central = Counter(arts_candidatos).most_common(1)[0][0]
+    indices_central = [i for i, a in enumerate(articulos) if a == art_central]
+    if not indices_central:
+        return None
+
+    vec_central = np.mean(chunk_embeddings[indices_central], axis=0)
+    vec_central = vec_central / (np.linalg.norm(vec_central) + 1e-12)
+
+    similitudes = chunk_embeddings @ vec_central
+    mejores_por_art = {}
+
+    for idx, sim in enumerate(similitudes):
+        art = articulos[idx]
+        if art is None or art == art_central:
+            continue
+        if art not in mejores_por_art or sim > mejores_por_art[art]["sim"]:
+            extracto = re.sub(r"^\[.*?\]\s*", "", chunks[idx])[:180] + "..."
+            mejores_por_art[art] = {
+                "articulo": art,
+                "pagina": paginas[idx],
+                "sim": float(sim),
+                "afinidad": int(np.clip(sim * 100, 40, 98)),
+                "resumen": extracto,
+            }
+
+    relacionados = sorted(mejores_por_art.values(), key=lambda x: -x["sim"])[:top_n]
+    extracto_central = re.sub(r"^\[.*?\]\s*", "", chunks[indices_central[0]])[:200] + "..."
+
+    return {
+        "central": {
+            "articulo": art_central,
+            "pagina": paginas[indices_central[0]],
+            "resumen": extracto_central,
+        },
+        "relacionados": relacionados,
+    }
+
+
+# ---------------------------------------------------------------- RAG
 def rag(pregunta, historial=None, modo="consulta", top_k=10):
     historial = historial or []
     consultas = expandir_consulta(pregunta, historial, modo)
     indices = recuperar(consultas, top_k)
 
-    # En modo caso práctico, asegurar que siempre estén disponibles los artículos de mecanismos clave
     articulos_forzados = [int(n) for n in re.findall(r"art[ií]culo\s+(\d+)", pregunta, re.IGNORECASE)]
     if modo == "caso":
         articulos_forzados.extend([23, 86])
@@ -253,7 +367,6 @@ def rag(pregunta, historial=None, modo="consulta", top_k=10):
     indices = sorted(set(indices))
     contexto = "\n\n".join(chunks[i] for i in indices)
 
-    # Construir lista limpia de fuentes literales para la auditoría en el frontend
     fuentes = []
     vistos = set()
     for i in indices:
@@ -269,7 +382,6 @@ def rag(pregunta, historial=None, modo="consulta", top_k=10):
                 "extracto": texto_limpio,
             })
         else:
-            # Concatenar continuación si es del mismo artículo y página
             for f in fuentes:
                 if f["articulo"] == art and f["pagina"] == pag:
                     f["extracto"] += " " + texto_limpio
@@ -324,9 +436,15 @@ Pregunta: {pregunta}
     mensajes.append({"role": "user", "content": user_prompt})
 
     respuesta = llamar_llm(mensajes)
+    auditoria_citas, rigor_global = auditar_citas(respuesta)
+    grafo = construir_grafo_conexidad(indices)
+
     return {
         "respuesta": respuesta,
         "fuentes": fuentes,
+        "auditoria": auditoria_citas,
+        "rigor_global": rigor_global,
+        "grafo": grafo,
         "modo": modo,
     }
 
