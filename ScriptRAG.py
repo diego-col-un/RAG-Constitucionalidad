@@ -41,7 +41,7 @@ def llamar_llm(messages, model="deepseek/deepseek-chat", temperature=0.1):
     r = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={
-            "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
+            "Authorization": f"Bearer {os.environ.get("OPENROUTER_API_KEY", "")}",
             "HTTP-Referer": "http://localhost",
             "X-Title": "RAG Constitucion Colombia 1991",
         },
