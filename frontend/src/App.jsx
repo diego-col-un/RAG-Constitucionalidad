@@ -65,6 +65,9 @@ export default function App() {
     const pregunta = (texto ?? input).trim();
     if (!pregunta || cargando) return;
 
+    // Últimos mensajes previos (sin el saludo inicial) como memoria de la conversación
+    const historial = mensajes.slice(1).slice(-6);
+
     setMensajes((m) => [...m, { rol: "user", texto: pregunta }]);
     setInput("");
     setCargando(true);
@@ -73,7 +76,7 @@ export default function App() {
       const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pregunta }),
+        body: JSON.stringify({ pregunta, historial }),
       });
       const data = await res.json();
       const respuesta = res.ok ? data.respuesta : `Error: ${data.error}`;
