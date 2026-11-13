@@ -113,16 +113,13 @@ def cargar_y_fragmentar_pdf(ruta_pdf, max_palabras=MAX_PALABRAS, solape=SOLAPE):
     return chunks, articulos, paginas
 
 
-def firma_cache():
-    st = os.stat(RUTA_PDF)
-    base = f"{MODELO_EMBEDDINGS}|{MAX_SEQ}|{MAX_PALABRAS}|{SOLAPE}|{st.st_size}|{int(st.st_mtime)}|v4_grafos"
-    return hashlib.md5(base.encode()).hexdigest()
-
-
 # ---------------------------------------------------------------- Caché en disco
 def firma_cache():
+    # Antes estaba definida dos veces (la segunda, con "v3", pisaba a la primera).
+    # Se deja una sola. Usa el tamaño del PDF (no la fecha de modificación) para que
+    # la caché generada en el build de Docker siga siendo válida en el contenedor.
     st = os.stat(RUTA_PDF)
-    base = f"{MODELO_EMBEDDINGS}|{MAX_SEQ}|{MAX_PALABRAS}|{SOLAPE}|{st.st_size}|{int(st.st_mtime)}|v3"
+    base = f"{MODELO_EMBEDDINGS}|{MAX_SEQ}|{MAX_PALABRAS}|{SOLAPE}|{st.st_size}|v4_grafos"
     return hashlib.md5(base.encode()).hexdigest()
 
 
@@ -240,7 +237,6 @@ def recuperar(consultas, top_k=10, k_rrf=60):
     return [i for i, _ in sorted(puntajes.items(), key=lambda x: -x[1])[:top_k]]
 
 
-# ---------------------------------------------------------------- RAG
 # ---------------------------------------------------------------- Ingeniería Jurídica Determinística
 def auditar_citas(respuesta_texto):
     """
@@ -388,7 +384,7 @@ def rag(pregunta, historial=None, modo="consulta", top_k=10):
 
     identidad = (
         "Eres un asistente jurídico experto en la Constitución Política de Colombia de 1991, "
-        "creado y desarrollado por Santiago Cardona Libreros  y Diego Aristizabal "
+        "creado y desarrollado por Santiago Cardona Libreros y Diego Fernando Aristizábal Gutiérrez. "
         "Si te preguntan quién te creó, responde con orgullo mencionando a tus creadores."
     )
 
@@ -455,6 +451,11 @@ bm25 = BM25Okapi([tokenizar(c) for c in chunks])
 print(f"Listo: {len(chunks)} fragmentos, {len(set(a for a in articulos if a))} artículos.")
 
 
+@app.route("/api/health", methods=["GET"])
+def health():
+    return jsonify({"estado": "ok", "fragmentos": len(chunks)})
+
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     data = request.get_json(silent=True) or {}
@@ -470,4 +471,5 @@ def chat():
 
 
 if __name__ == "__main__":
-    app.run(port=5000, debug=True, use_reloader=False)
+    # Solo para desarrollo local. En Docker se usa gunicorn (ver Dockerfile).
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)

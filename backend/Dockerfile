@@ -16,8 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"
 
 COPY . .
+RUN python -c "import app"
 
-EXPOSE 5000
-
-# 1 worker: cada worker carga el modelo en RAM
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "120", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "300", "app:app"]
